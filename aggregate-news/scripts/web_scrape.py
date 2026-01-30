@@ -105,9 +105,20 @@ def scrape_webpage(
             
             page = context.new_page()
             
-            # Navigate to the URL and wait for network to be idle
+            # Navigate to the URL with a more forgiving wait strategy
             print(f"Navigating to {url}...")
-            page.goto(url, wait_until='networkidle', timeout=timeout)
+            try:
+                # Try networkidle first (best for most sites)
+                page.goto(url, wait_until='networkidle', timeout=timeout)
+            except PlaywrightTimeoutError:
+                print(f"Warning: networkidle timeout, retrying with 'load' strategy...")
+                try:
+                    # Fallback to 'load' which just waits for DOM load event
+                    page.goto(url, wait_until='load', timeout=timeout)
+                except PlaywrightTimeoutError:
+                    print(f"Warning: load timeout, retrying with 'domcontentloaded' strategy...")
+                    # Last resort: just wait for DOM to be parsed
+                    page.goto(url, wait_until='domcontentloaded', timeout=timeout)
             
             # Wait a bit more for any lazy-loaded content
             page.wait_for_timeout(wait_after_load)
@@ -130,8 +141,8 @@ def scrape_webpage(
             browser.close()
             return content
             
-    except PlaywrightTimeoutError:
-        print(f"Timeout error: Failed to load {url} within the timeout period")
+    except PlaywrightTimeoutError as e:
+        print(f"Timeout error: Failed to load {url} within the timeout period: {e}")
         return None
     except Exception as e:
         print(f"Error scraping {url}: {str(e)}")

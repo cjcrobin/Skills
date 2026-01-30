@@ -8,6 +8,7 @@ license = {text = "MIT"}
 dependencies = [
     "playwright>=1.57.0",
     "beautifulsoup4>=4.12.3",
+    "lxml>=6.0.2",
 ]
 
 [build-system]

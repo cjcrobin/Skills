@@ -135,69 +135,123 @@ def parse_hacker_news(html_content: str) -> List[NewsItem]:
 
 def parse_product_hunt(html_content: str) -> List[NewsItem]:
     """
-    Parse Product Hunt feed HTML and extract news items.
+    Parse Product Hunt Atom feed and extract news items.
     
     Args:
-        html_content: HTML content from Product Hunt
+        html_content: Atom feed XML content from Product Hunt (may be HTML-wrapped)
     
     Returns:
         List of NewsItem objects
     """
-    soup = BeautifulSoup(html_content, 'html.parser')
+    # First, check if the content is wrapped in HTML tags
+    # If so, extract the actual XML content from the <pre> tag
+    if html_content.strip().startswith('<html>') or html_content.strip().startswith('<!DOCTYPE'):
+        html_soup = BeautifulSoup(html_content, 'html.parser')
+        pre_tag = html_soup.find('pre')
+        if pre_tag:
+            # Get the text content which contains the escaped XML
+            xml_content = pre_tag.get_text()
+            # Unescape HTML entities
+            import html
+            xml_content = html.unescape(xml_content)
+        else:
+            xml_content = html_content
+    else:
+        xml_content = html_content
+    
+    soup = BeautifulSoup(xml_content, 'xml')
     items = []
     
-    # Product Hunt structure may vary, using common patterns
-    # Look for post links
-    post_links = soup.find_all('a', href=True)
-    seen_urls = set()
+    # Find all entry elements in the Atom feed
+    entries = soup.find_all('entry')
     
-    for link in post_links:
+    for entry in entries:
         try:
-            href = link.get('href', '')
-            
-            # Filter for product post links
-            if '/posts/' not in href:
+            # Extract title
+            title_elem = entry.find('title')
+            if not title_elem or not title_elem.text.strip():
                 continue
+            title = title_elem.text.strip()
             
-            # Build full URL
-            if href.startswith('/'):
-                url = f"https://www.producthunt.com{href}"
-            elif href.startswith('http'):
-                url = href
-            else:
+            # Extract Product Hunt page URL (the main product page)
+            link_elem = entry.find('link', {'rel': 'alternate', 'type': 'text/html'})
+            if not link_elem or not link_elem.get('href'):
                 continue
+            url = link_elem.get('href')
             
-            # Skip duplicates
-            if url in seen_urls:
-                continue
-            seen_urls.add(url)
-            
-            # Extract title (from link text or nearby elements)
-            title = link.text.strip()
-            if not title or len(title) < 3:
-                # Try to find title in parent or sibling elements
-                parent = link.find_parent(['div', 'article', 'section'])
-                if parent:
-                    heading = parent.find(['h1', 'h2', 'h3', 'h4'])
-                    if heading:
-                        title = heading.text.strip()
-            
-            if not title or len(title) < 3:
-                continue
-            
-            # Product Hunt doesn't always show exact publish time on feed
-            # Using current date as placeholder
+            # Extract publish time
+            published_elem = entry.find('published')
             publish_time = datetime.now()
+            if published_elem and published_elem.text:
+                try:
+                    # Parse ISO 8601 format: 2026-01-14T02:11:04-08:00
+                    publish_time = datetime.fromisoformat(published_elem.text.replace('Z', '+00:00'))
+                except Exception as e:
+                    print(f"Error parsing publish time: {e}", file=sys.stderr)
             
-            # Default popularity for Product Hunt items
+            # Extract author
+            author_elem = entry.find('author')
+            author_name = None
+            if author_elem:
+                name_elem = author_elem.find('name')
+                if name_elem:
+                    author_name = name_elem.text.strip()
+            
+            # Extract official product page from content
+            official_page = None
+            content_elem = entry.find('content', {'type': 'html'})
+            if content_elem and content_elem.text:
+                # Parse the HTML content
+                content_soup = BeautifulSoup(content_elem.text, 'html.parser')
+                
+                # Look for redirect links (e.g., /r/p/1062783)
+                redirect_links = content_soup.find_all('a', href=True)
+                for link in redirect_links:
+                    href = link.get('href', '')
+                    if '/r/p/' in href:
+                        # This is the official product redirect link
+                        if href.startswith('http'):
+                            official_page = href
+                        else:
+                            official_page = f"https://www.producthunt.com{href}"
+                        break
+                
+                # If no redirect link found, look for external links
+                if not official_page:
+                    for link in redirect_links:
+                        href = link.get('href', '')
+                        if href.startswith('http') and 'producthunt.com' not in href:
+                            official_page = href
+                            break
+            
+            # Extract post ID for popularity tracking
+            post_id = None
+            id_elem = entry.find('id')
+            if id_elem and id_elem.text:
+                # Format: tag:www.producthunt.com,2005:Post/1062783
+                id_text = id_elem.text
+                if '/Post/' in id_text:
+                    post_id = id_text.split('/Post/')[-1]
+            
+            # Default popularity (Product Hunt doesn't include votes in feed)
             popularity = 10
+            
+            # Build additional metadata
+            additional_metadata = {}
+            if official_page:
+                additional_metadata['official_page'] = official_page
+            if author_name:
+                additional_metadata['author'] = author_name
+            if post_id:
+                additional_metadata['post_id'] = post_id
             
             items.append(NewsItem(
                 url=url,
                 title=title,
                 publish_time=publish_time,
                 popularity=popularity,
-                source="product_hunt"
+                source="product_hunt",
+                additional_metadata=additional_metadata if additional_metadata else None
             ))
             
         except Exception as e:
@@ -229,7 +283,7 @@ def fetch_news_metadata(
         print("Fetching from Hacker News...")
         html = scrape_webpage(
             url="https://news.ycombinator.com/front",
-            timeout=30000,
+            timeout=60000,
             wait_after_load=2000
         )
         
@@ -243,8 +297,10 @@ def fetch_news_metadata(
         print("Fetching from Product Hunt...")
         html = scrape_webpage(
             url="https://www.producthunt.com/feed",
-            timeout=30000,
-            wait_after_load=3000
+            timeout=90000,
+            wait_after_load=5000,
+            save_location="temp_data",
+            save_to_file=True
         )
         
         if html:
@@ -297,8 +353,8 @@ def fetch_article_content(url: str) -> Optional[str]:
     print(f"Fetching content from {url}...")
     return scrape_webpage(
         url=url,
-        timeout=30000,
-        wait_after_load=2000
+        timeout=90000,
+        wait_after_load=3000
     )
 
 
