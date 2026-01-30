@@ -4,6 +4,7 @@ FROM mcr.microsoft.com/playwright/python:v1.57.0
 WORKDIR /app
 COPY ./pyproject.toml ./
 COPY ./README.md ./
+COPY ./uv.lock ./
 
 RUN pip install uv
 RUN uv sync --no-install-project

@@ -70,7 +70,7 @@ Example：
 ```bash
 docker exec aggregate-news-container \
   sh -c "uv run python news_fetch.py \
-           --source all \
+           --source [source from preferences] \
            --limit [number from preferences] \
            --keywords '[expanded keywords comma-separated]' \
            [--content if fetch_content is true] \
@@ -79,7 +79,7 @@ docker exec aggregate-news-container \
 ```
 
 **Step 4.3: Copy the file from the mounted folder to target folder**
-The mounted folder is the {{SKILL_DIR}}/temp_data. Copy all the files in the mounted folder to the target folder defined in the REFERENCE.md or provided by users.  
+The mounted folder is the {{SKILL_DIR}}/scripts/temp_data. Copy all the files in the mounted folder to the target folder defined in the REFERENCE.md or provided by users.  
 
 **File Storage Convention:**
 All articles must be saved following this structure:
@@ -90,12 +90,6 @@ All articles must be saved following this structure:
 Examples:
 - `~/articles/2026-01-29/HackerNews/introducing-mcp-protocol.json`
 - `~/articles/2026-01-29/ProductHunt/new-ai-productivity-tool.json`
-
-**Notes:**
-- The `-v ~/articles:/articles` flag maps your local articles directory to the container
-- The `-v $(pwd):/app` flag maps the current directory to /app in the container
-- Dependencies are installed inside the container before running the script
-- The `--rm` flag automatically removes the container after execution
 
 ### Step 5: Report Results
 
