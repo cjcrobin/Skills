@@ -22,6 +22,10 @@ Configure this skill's behavior by creating a `PREFERENCE.md` file with the foll
   - Default: `zh-CN`
   - Options: `zh-CN`, `en`, `zh-TW`
 
+- **writing_style**: Writing style/perspective for articles
+  - Default: `objective`
+  - Options: `objective` (third-person), `first-person` (personal experience)
+
 - **tags_auto_generate**: Automatically generate tags from content
   - Default: `true`
   - Options: `true`, `false`
@@ -51,6 +55,7 @@ Configure this skill's behavior by creating a `PREFERENCE.md` file with the foll
 - **default_category**: tech-analysis
 - **author**: Robin Zhang
 - **language**: zh-CN
+- **writing_style**: objective
 - **tags_auto_generate**: true
 - **max_tags**: 8
 - **include_toc**: false
