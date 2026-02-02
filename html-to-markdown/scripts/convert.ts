@@ -59,65 +59,151 @@ function processJsonFile(filePath: string): { articles: number; discussions: num
     let articles = 0;
     let discussions = 0;
     const dir = dirname(filePath);
+    const source = data.source || 'unknown';
+    const title = data.title || 'Untitled';
     
-    // Process article content
-    if (data.content && data.content !== null) {
-      const title = data.title || 'Untitled';
-      const filename = sanitizeFilename(title);
-      const markdown = htmlToMarkdown(data.content);
+    // Detect source type and process accordingly
+    if (source === 'hacker_news') {
+      // Hacker News: post_content -> post.md, comment_content -> comment.md
       
-      const metadata: PageMetadata = {
-        url: data.url || '',
-        title: title,
-        source: data.source || 'unknown',
-        published: data.publish_time || '',
-        type: 'article',
-      };
-      
-      if (data.description) {
-        metadata.description = data.description;
+      // Process post content
+      if (data.post_content && data.post_content !== null) {
+        const markdown = htmlToMarkdown(data.post_content);
+        
+        const metadata: PageMetadata = {
+          url: data.post_url || '',
+          title: title,
+          source: 'hacker_news',
+          published: data.publish_time || '',
+          type: 'article',
+          points: data.points || 0,
+          num_comments: data.num_comments || 0,
+        };
+        
+        const frontmatter = formatMetadataYaml(metadata);
+        const fullContent = `${frontmatter}\n\n${markdown}`;
+        
+        const outputPath = join(dir, 'post.md');
+        writeFileSync(outputPath, fullContent, 'utf-8');
+        
+        const wordCount = markdown.split(/\s+/).length;
+        const headingCount = (markdown.match(/^#+\s/gm) || []).length;
+        console.log(`  ✓ post.md (words: ${wordCount}, headings: ${headingCount})`);
+        articles++;
+      } else {
+        console.log(`  ⚠ Skipping post.md: post_content is null`);
       }
       
-      const frontmatter = formatMetadataYaml(metadata);
-      const fullContent = `${frontmatter}\n\n${markdown}`;
+      // Process comment content
+      if (data.comment_content && data.comment_content !== null) {
+        const markdown = htmlToMarkdown(data.comment_content);
+        
+        const metadata: PageMetadata = {
+          url: data.comment_url || '',
+          title: `${title} - Discussion`,
+          source: 'hacker_news',
+          type: 'hn_discussion',
+          original_article: data.post_url || '',
+          points: data.points || 0,
+          num_comments: data.num_comments || 0,
+        };
+        
+        const frontmatter = formatMetadataYaml(metadata);
+        const fullContent = `${frontmatter}\n\n${markdown}`;
+        
+        const outputPath = join(dir, 'comment.md');
+        writeFileSync(outputPath, fullContent, 'utf-8');
+        
+        const wordCount = markdown.split(/\s+/).length;
+        const headingCount = (markdown.match(/^#+\s/gm) || []).length;
+        console.log(`  ✓ comment.md (words: ${wordCount}, headings: ${headingCount})`);
+        discussions++;
+      } else {
+        console.log(`  ⚠ Skipping comment.md: comment_content is null`);
+      }
       
-      const outputPath = join(dir, `${filename}.md`);
-      writeFileSync(outputPath, fullContent, 'utf-8');
+    } else if (source === 'product_hunt') {
+      // Product Hunt: product_content -> product.md, hunt_content -> hunt.md
       
-      const wordCount = markdown.split(/\s+/).length;
-      const headingCount = (markdown.match(/^#+\s/gm) || []).length;
-      console.log(`  ✓ ${filename}.md (words: ${wordCount}, headings: ${headingCount})`);
-      articles++;
-    }
-    
-    // Process discussion content
-    const additionalMeta = data.additional_metadata || {};
-    if (additionalMeta.comments_content && additionalMeta.comments_content !== null) {
-      const title = data.title || 'Untitled';
-      const filename = sanitizeFilename(title);
-      const markdown = htmlToMarkdown(additionalMeta.comments_content);
+      // Process product content
+      if (data.product_content && data.product_content !== null) {
+        const markdown = htmlToMarkdown(data.product_content);
+        
+        const metadata: PageMetadata = {
+          url: data.product_url || '',
+          title: title,
+          source: 'product_hunt',
+          published: data.publish_time || '',
+          type: 'product_page',
+          votes: data.votes || 0,
+        };
+        
+        const frontmatter = formatMetadataYaml(metadata);
+        const fullContent = `${frontmatter}\n\n${markdown}`;
+        
+        const outputPath = join(dir, 'product.md');
+        writeFileSync(outputPath, fullContent, 'utf-8');
+        
+        const wordCount = markdown.split(/\s+/).length;
+        const headingCount = (markdown.match(/^#+\s/gm) || []).length;
+        console.log(`  ✓ product.md (words: ${wordCount}, headings: ${headingCount})`);
+        articles++;
+      } else {
+        console.log(`  ⚠ Skipping product.md: product_content is null`);
+      }
       
-      const metadata: PageMetadata = {
-        url: additionalMeta.comments_url || '',
-        title: `${title} - Discussion`,
-        source: data.source || 'hacker_news',
-        type: 'hn_discussion',
-        original_article: data.url || '',
-      };
+      // Process hunt content
+      if (data.hunt_content && data.hunt_content !== null) {
+        const markdown = htmlToMarkdown(data.hunt_content);
+        
+        const metadata: PageMetadata = {
+          url: data.hunt_url || '',
+          title: `${title} - Product Hunt`,
+          source: 'product_hunt',
+          type: 'product_hunt_page',
+          original_product: data.product_url || '',
+          votes: data.votes || 0,
+        };
+        
+        const frontmatter = formatMetadataYaml(metadata);
+        const fullContent = `${frontmatter}\n\n${markdown}`;
+        
+        const outputPath = join(dir, 'hunt.md');
+        writeFileSync(outputPath, fullContent, 'utf-8');
+        
+        const wordCount = markdown.split(/\s+/).length;
+        const headingCount = (markdown.match(/^#+\s/gm) || []).length;
+        console.log(`  ✓ hunt.md (words: ${wordCount}, headings: ${headingCount})`);
+        discussions++;
+      } else {
+        console.log(`  ⚠ Skipping hunt.md: hunt_content is null`);
+      }
       
-      if (additionalMeta.points) metadata.points = additionalMeta.points;
-      if (additionalMeta.comments) metadata.comments = additionalMeta.comments;
+    } else {
+      // Unknown source or legacy format - try to handle gracefully
+      console.log(`  ⚠ Unknown source '${source}' - attempting generic processing`);
       
-      const frontmatter = formatMetadataYaml(metadata);
-      const fullContent = `${frontmatter}\n\n${markdown}`;
-      
-      const outputPath = join(dir, `${filename}-discussion.md`);
-      writeFileSync(outputPath, fullContent, 'utf-8');
-      
-      const wordCount = markdown.split(/\s+/).length;
-      const headingCount = (markdown.match(/^#+\s/gm) || []).length;
-      console.log(`  ✓ ${filename}-discussion.md (words: ${wordCount}, headings: ${headingCount})`);
-      discussions++;
+      // Try legacy format first (content field)
+      if (data.content && data.content !== null) {
+        const filename = sanitizeFilename(title);
+        const markdown = htmlToMarkdown(data.content);
+        
+        const metadata: PageMetadata = {
+          url: data.url || '',
+          title: title,
+          source: source,
+          published: data.publish_time || '',
+          type: 'article',
+        };
+        
+        const frontmatter = formatMetadataYaml(metadata);
+        const fullContent = `${frontmatter}\n\n${markdown}`;
+        
+        const outputPath = join(dir, `${filename}.md`);
+        writeFileSync(outputPath, fullContent, 'utf-8');
+        console.log(`  ✓ ${filename}.md (legacy format)`);
+        articles++;
+      }
     }
     
     return { articles, discussions };

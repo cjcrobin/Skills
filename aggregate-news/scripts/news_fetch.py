@@ -10,7 +10,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union, cast
 from enum import Enum
 
 from bs4 import BeautifulSoup
@@ -29,22 +29,52 @@ class NewsSource(Enum):
 
 
 @dataclass
-class NewsItem():
-    """Represents a news item from any source."""
-    url: str
+class NewsItem:
+    """Base class for news items with common properties."""
     title: str
     publish_time: datetime
     popularity: int
     source: str
-    content: Optional[str] = None
-    additional_metadata: Optional[Dict[str, Any]] = None
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return asdict(self)
+        """Convert to dictionary with proper datetime serialization."""
+        data = asdict(self)
+        # Convert datetime to ISO format string
+        if isinstance(data.get('publish_time'), datetime):
+            data['publish_time'] = data['publish_time'].isoformat()
+        return data
 
 
-def parse_hacker_news(html_content: str) -> List[NewsItem]:
+@dataclass
+class HackerNewsItem(NewsItem):
+    """Represents a Hacker News item with post and comments."""
+    post_url: str = ""
+    post_content: Optional[str] = None
+    comment_url: Optional[str] = None
+    comment_content: Optional[str] = None
+    points: int = 0
+    num_comments: int = 0
+    
+    def __post_init__(self):
+        """Ensure source is set to hacker_news."""
+        self.source = NewsSource.HACKER_NEWS.value
+
+
+@dataclass
+class ProductHuntItem(NewsItem):
+    """Represents a Product Hunt item with product and hunt pages."""
+    product_url: str = ""
+    product_content: Optional[str] = None
+    hunt_url: str = ""
+    hunt_content: Optional[str] = None
+    votes: int = 0
+    
+    def __post_init__(self):
+        """Ensure source is set to product_hunt."""
+        self.source = NewsSource.PRODUCT_HUNT.value
+
+
+def parse_hacker_news(html_content: str) -> List[HackerNewsItem]:
     """
     Parse Hacker News front page HTML and extract news items.
     
@@ -52,7 +82,7 @@ def parse_hacker_news(html_content: str) -> List[NewsItem]:
         html_content: HTML content from Hacker News
     
     Returns:
-        List of NewsItem objects
+        List of HackerNewsItem objects
     """
     soup = BeautifulSoup(html_content, 'html.parser')
     items = []
@@ -110,21 +140,16 @@ def parse_hacker_news(html_content: str) -> List[NewsItem]:
             # Calculate popularity (points + comments as a simple metric)
             popularity = points + comments
             
-            # Build additional metadata
-            additional_metadata = {}
-            if comments_url:
-                additional_metadata['comments_url'] = comments_url
-            additional_metadata['points'] = points
-            additional_metadata['comments'] = comments
-
-            
-            items.append(NewsItem(
-                url=url,
+            # Create HackerNewsItem
+            items.append(HackerNewsItem(
                 title=title,
                 publish_time=datetime.fromtimestamp(int(ts_part)) if ts_part else (datetime.now() - timedelta(days=7)),
                 popularity=popularity,
-                source="hacker_news",
-                additional_metadata=additional_metadata if additional_metadata else None
+                source=NewsSource.HACKER_NEWS.value,
+                post_url=url,
+                comment_url=comments_url,
+                points=points,
+                num_comments=comments
             ))
         except Exception as e:
             print(f"Error parsing Hacker News item: {e}", file=sys.stderr)
@@ -133,7 +158,7 @@ def parse_hacker_news(html_content: str) -> List[NewsItem]:
     return items
 
 
-def parse_product_hunt(html_content: str) -> List[NewsItem]:
+def parse_product_hunt(html_content: str) -> List[ProductHuntItem]:
     """
     Parse Product Hunt Atom feed and extract news items.
     
@@ -141,7 +166,7 @@ def parse_product_hunt(html_content: str) -> List[NewsItem]:
         html_content: Atom feed XML content from Product Hunt (may be HTML-wrapped)
     
     Returns:
-        List of NewsItem objects
+        List of ProductHuntItem objects
     """
     # First, check if the content is wrapped in HTML tags
     # If so, extract the actual XML content from the <pre> tag
@@ -198,7 +223,7 @@ def parse_product_hunt(html_content: str) -> List[NewsItem]:
                     author_name = name_elem.text.strip()
             
             # Extract official product page from content
-            official_page = None
+            product_page = None
             content_elem = entry.find('content', {'type': 'html'})
             if content_elem and content_elem.text:
                 # Parse the HTML content
@@ -211,17 +236,17 @@ def parse_product_hunt(html_content: str) -> List[NewsItem]:
                     if '/r/p/' in href:
                         # This is the official product redirect link
                         if href.startswith('http'):
-                            official_page = href
+                            product_page = href
                         else:
-                            official_page = f"https://www.producthunt.com{href}"
+                            product_page = f"https://www.producthunt.com{href}"
                         break
                 
                 # If no redirect link found, look for external links
-                if not official_page:
+                if not product_page:
                     for link in redirect_links:
                         href = link.get('href', '')
                         if href.startswith('http') and 'producthunt.com' not in href:
-                            official_page = href
+                            product_page = href
                             break
             
             # Extract post ID for popularity tracking
@@ -235,23 +260,17 @@ def parse_product_hunt(html_content: str) -> List[NewsItem]:
             
             # Default popularity (Product Hunt doesn't include votes in feed)
             popularity = 10
+            votes = 0
             
-            # Build additional metadata
-            additional_metadata = {}
-            if official_page:
-                additional_metadata['official_page'] = official_page
-            if author_name:
-                additional_metadata['author'] = author_name
-            if post_id:
-                additional_metadata['post_id'] = post_id
-            
-            items.append(NewsItem(
-                url=url,
+            # Create ProductHuntItem
+            items.append(ProductHuntItem(
                 title=title,
                 publish_time=publish_time,
                 popularity=popularity,
-                source="product_hunt",
-                additional_metadata=additional_metadata if additional_metadata else None
+                source=NewsSource.PRODUCT_HUNT.value,
+                product_url=product_page if product_page else url,
+                hunt_url=url,
+                votes=votes
             ))
             
         except Exception as e:
@@ -265,7 +284,7 @@ def fetch_news_metadata(
     source: NewsSource,
     limit: int = 10,
     keywords: Optional[List[str]] = None
-) -> Dict[NewsSource, List[NewsItem]]:
+) -> Dict[NewsSource, List[Union[HackerNewsItem, ProductHuntItem]]]:
     """
     Fetch news metadata from specified source(s).
     
@@ -275,9 +294,9 @@ def fetch_news_metadata(
         keywords: Optional list of keywords to filter by
     
     Returns:
-        List of NewsItem objects with metadata only
+        Dict of NewsSource to List of source-specific NewsItem objects
     """
-    items: Dict[NewsSource, List[NewsItem]] = {}
+    items: Dict[NewsSource, List[Union[HackerNewsItem, ProductHuntItem]]] = {}
     
     if source in [NewsSource.HACKER_NEWS, NewsSource.ALL]:
         print("Fetching from Hacker News...")
@@ -289,7 +308,7 @@ def fetch_news_metadata(
         
         if html:
             hn_items = parse_hacker_news(html)
-            items[NewsSource.HACKER_NEWS] = hn_items
+            items[NewsSource.HACKER_NEWS] = cast(List[Union[HackerNewsItem, ProductHuntItem]], hn_items)
         else:
             print("Failed to fetch Hacker News", file=sys.stderr)
     
@@ -305,7 +324,7 @@ def fetch_news_metadata(
         
         if html:
             ph_items = parse_product_hunt(html)
-            items[NewsSource.PRODUCT_HUNT] = ph_items
+            items[NewsSource.PRODUCT_HUNT] = cast(List[Union[HackerNewsItem, ProductHuntItem]], ph_items)
         else:
             print("Failed to fetch Product Hunt", file=sys.stderr)
     
@@ -314,7 +333,7 @@ def fetch_news_metadata(
         keywords_lower = [k.lower() for k in keywords]
         
         for key in items:
-            filtered_items: List[NewsItem] = []
+            filtered_items: List[Union[HackerNewsItem, ProductHuntItem]] = []
             for item in items[key]:
                 title_lower = item.title.lower()
                 if any(keyword in title_lower for keyword in keywords_lower):
@@ -363,7 +382,7 @@ def fetch_news_with_content(
     limit: int = 10,
     keywords: Optional[List[str]] = None,
     max_workers: int = 5
-) -> Dict[NewsSource, List[NewsItem]]:
+) -> Dict[NewsSource, List[Union[HackerNewsItem, ProductHuntItem]]]:
     """
     Fetch news items with full content in parallel.
     
@@ -374,10 +393,10 @@ def fetch_news_with_content(
         max_workers: Maximum number of parallel workers (default: 5)
     
     Returns:
-        Dict of NewsSource to list of NewsItem objects with content populated
+        Dict of NewsSource to list of source-specific NewsItem objects with content populated
     """
     # First get metadata
-    items: Dict[NewsSource, List[NewsItem]] = fetch_news_metadata(source, limit, keywords)
+    items: Dict[NewsSource, List[Union[HackerNewsItem, ProductHuntItem]]] = fetch_news_metadata(source, limit, keywords)
     
     if not items:
         return items
@@ -395,17 +414,42 @@ def fetch_news_with_content(
         print(f"key: {key} - [{index + 1}/{len(items[key])}] Waiting {wait_time:.1f}s before fetching...")
         time.sleep(wait_time)
         
-        print(f"key: {key} - [{index + 1}/{len(items[key])}] Fetching: {item.title[:60]}...")
-        content = fetch_article_content(item.url)
+        # Fetch content based on item type
+        if isinstance(item, HackerNewsItem):
+            # Fetch post content
+            if item.post_url:
+                print(f"key: {key} - [{index + 1}/{len(items[key])}] Fetching post: {item.title[:60]}...")
+                post_content = fetch_article_content(item.post_url)
+            else:
+                post_content = None
+            
+            # Fetch comment content
+            if item.comment_url:
+                print(f"key: {key} - [{index + 1}/{len(items[key])}] Fetching comments...")
+                comment_content = fetch_article_content(item.comment_url)
+            else:
+                comment_content = None
+            
+            return key, index, post_content, comment_content
+            
+        elif isinstance(item, ProductHuntItem):
+            # Fetch product page content
+            if item.product_url:
+                print(f"key: {key} - [{index + 1}/{len(items[key])}] Fetching product: {item.title[:60]}...")
+                product_content = fetch_article_content(item.product_url)
+            else:
+                product_content = None
+            
+            # Fetch hunt page content
+            if item.hunt_url:
+                print(f"key: {key} - [{index + 1}/{len(items[key])}] Fetching hunt page...")
+                hunt_content = fetch_article_content(item.hunt_url)
+            else:
+                hunt_content = None
+            
+            return key, index, product_content, hunt_content
         
-        # Also fetch comments if available
-        comments_content = None
-        if item.additional_metadata and 'comments_url' in item.additional_metadata:
-            comments_url = item.additional_metadata['comments_url']
-            print(f"key: {key} - [{index + 1}/{len(items[key])}] Fetching comments from {comments_url}...")
-            comments_content = fetch_article_content(comments_url)
-        
-        return key, index, content, comments_content
+        return key, index, None, None
     
     # Use ThreadPoolExecutor for parallel fetching
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -419,23 +463,33 @@ def fetch_news_with_content(
         # Process completed tasks
         for future in as_completed(future_to_index):
             try:
-                key, index, content, comments_content = future.result()
-                items[key][index].content = content
+                key, index, content1, content2 = future.result()
+                item = items[key][index]
                 
-                # Store comments content in additional_metadata
-                if comments_content:
-                    if items[key][index].additional_metadata is None:
-                        items[key][index].additional_metadata = {}
-                    items[key][index].additional_metadata['comments_content'] = comments_content
-                    print(f"key: {key} - [{index + 1}/{len(items[key])}] ✓ Completed (with comments): {items[key][index].title[:60]}")
-                elif content:
-                    print(f"key: {key} - [{index + 1}/{len(items[key])}] ✓ Completed: {items[key][index].title[:60]}")
-                else:
-                    print(f"[{index + 1}/{len(items[key])}] ✗ Failed: {items[key][index].title[:60]}")
+                # Update content based on item type
+                if isinstance(item, HackerNewsItem):
+                    item.post_content = content1
+                    item.comment_content = content2
+                    if content1 and content2:
+                        print(f"key: {key} - [{index + 1}/{len(items[key])}] ✓ Completed (post + comments): {item.title[:60]}")
+                    elif content1:
+                        print(f"key: {key} - [{index + 1}/{len(items[key])}] ✓ Completed (post only): {item.title[:60]}")
+                    else:
+                        print(f"key: {key} - [{index + 1}/{len(items[key])}] ✗ Failed: {item.title[:60]}")
+                        
+                elif isinstance(item, ProductHuntItem):
+                    item.product_content = content1
+                    item.hunt_content = content2
+                    if content1 and content2:
+                        print(f"key: {key} - [{index + 1}/{len(items[key])}] ✓ Completed (product + hunt): {item.title[:60]}")
+                    elif content1:
+                        print(f"key: {key} - [{index + 1}/{len(items[key])}] ✓ Completed (product only): {item.title[:60]}")
+                    else:
+                        print(f"key: {key} - [{index + 1}/{len(items[key])}] ✗ Failed: {item.title[:60]}")
+                        
             except Exception as e:
                 (key, index) = future_to_index[future]
-                print(f"[{index + 1}/{len(items[key])}] ✗ Error fetching {items[key][index].title[:60]}: {e}")
-                items[key][index].content = None
+                print(f"key: {key} - [{index + 1}/{len(items[key])}] ✗ Error fetching {items[key][index].title[:60]}: {e}")
     
     print(f"\nCompleted fetching content for {len(items)} articles")
     return items
@@ -508,8 +562,14 @@ def main():
         if args.output:
             for item in items[key]:
                 json_data: str = json.dumps(item.to_dict(), default=lambda o: o.isoformat() if isinstance(o, datetime) else str(o), indent=indent)
-                folder_path = os.path.join(args.output, str(datetime.now().date()), str(key))
-                save_content_to_file(json_data, folder_path, f"{item.title.lower().replace(' ', '_')}.json") 
+                # Create slug from title
+                slug = item.title.lower()
+                slug = slug.replace(' ', '_')
+                slug = ''.join(c if c.isalnum() or c == '_' else '_' for c in slug)
+                slug = slug[:80]  # Limit length
+                # Create folder structure: [output]/[date]/[source]/[slug]/
+                folder_path = os.path.join(args.output, str(datetime.now().date()), str(key), slug)
+                save_content_to_file(json_data, folder_path, "origin.json") 
         else:
             for item in items[key]:
                 print_content_to_stdout(json.dumps(item.to_dict(), default=lambda o: o.isoformat() if isinstance(o, datetime) else str(o), indent=indent))

@@ -28,7 +28,7 @@ fi
 if ! docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     echo "🚀 容器 $CONTAINER_NAME 不存在，正在创建并启动..."
     mkdir -p temp_data
-    docker run --name $CONTAINER_NAME -v $(pwd)/news_fetch.py:/app/news_fetch.py -v $(pwd)/temp_data:/app/temp_data -v $(pwd)/web_scrape.py:/app/web_scrape.py -d $IMAGE_NAME
+    docker run --init --name $CONTAINER_NAME -v $(pwd)/news_fetch.py:/app/news_fetch.py -v $(pwd)/temp_data:/app/temp_data -v $(pwd)/web_scrape.py:/app/web_scrape.py -d $IMAGE_NAME
 else
     echo "✅ 容器 $CONTAINER_NAME 已存在。"
 

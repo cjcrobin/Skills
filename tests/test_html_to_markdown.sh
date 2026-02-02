@@ -41,12 +41,12 @@ echo -e "${YELLOW}[Step 2/5]${NC} Preparing test data..."
 
 # Clean and create temp_data structure
 rm -rf "${TEMP_DATA_DIR}/test"
-mkdir -p "${TEMP_DATA_DIR}/test"
+mkdir -p "${TEMP_DATA_DIR}/test/moltbook"
 
-# Copy test JSON file
-cp "${TEST_DATA_DIR}/moltbook.json" "${TEMP_DATA_DIR}/test/"
+# Copy test JSON file (now goes into a slug folder)
+cp "${TEST_DATA_DIR}/moltbook.json" "${TEMP_DATA_DIR}/test/moltbook/origin.json"
 if [ $? -eq 0 ]; then
-    echo -e "${GREEN}✓ Copied moltbook.json to temp_data/test/${NC}\n"
+    echo -e "${GREEN}✓ Copied moltbook.json to temp_data/test/moltbook/origin.json${NC}\n"
 else
     echo -e "${RED}✗ Failed to copy test data${NC}"
     exit 1
@@ -55,7 +55,7 @@ fi
 # Step 3: Execute conversion in Docker
 echo -e "${YELLOW}[Step 3/5]${NC} Running conversion in Docker container..."
 docker exec html-to-markdown-container \
-    bun /app/convert.ts /app/temp_data/test
+    bun /app/convert.ts /app/temp_data/test/moltbook
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Conversion completed${NC}\n"
@@ -71,8 +71,8 @@ echo -e "${YELLOW}[Step 4/5]${NC} Moving results to generated directory..."
 rm -rf "${GENERATED_DIR}"
 mkdir -p "${GENERATED_DIR}"
 
-# Copy all generated markdown files
-cp "${TEMP_DATA_DIR}/test/"*.md "${GENERATED_DIR}/" 2>/dev/null || {
+# Copy all generated markdown files (should be post.md and comment.md)
+cp "${TEMP_DATA_DIR}/test/moltbook/"*.md "${GENERATED_DIR}/" 2>/dev/null || {
     echo -e "${RED}✗ No markdown files generated${NC}"
     exit 1
 }

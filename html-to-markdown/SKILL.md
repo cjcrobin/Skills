@@ -7,11 +7,19 @@ description: Convert HTML files and aggregate-news JSON files to clean markdown 
 
 Convert HTML content to well-formatted markdown with metadata frontmatter. Accepts:
 - HTML files (*.html, *.htm)
-- JSON files from `aggregate-news` skill
+- JSON files from `aggregate-news` skill (origin.json)
 
-For JSON files, may generate 2 markdown files:
-1. Article content (from `content` field) → article.md
-2. HN comments (from `additional_metadata.comments_content`) → discussion.md (optional)
+## Source-Specific Processing
+
+### Hacker News Items (from origin.json)
+From a HackerNewsItem JSON, generates 2 markdown files:
+1. **post.md** - Article content from `post_content` field
+2. **comment.md** - HN discussion from `comment_content` field
+
+### Product Hunt Items (from origin.json)
+From a ProductHuntItem JSON, generates 2 markdown files:
+1. **product.md** - Product page content from `product_content` field
+2. **hunt.md** - Product Hunt page content from `hunt_content` field
 
 Output is saved to the same directory as input files.
 
@@ -42,11 +50,11 @@ Example PREFERENCE.md:
 
 Ask the user for:
 1. **Input directory or subdirectory**: Relative path from `storage_location`
-   - Example: If storage_location is `~/articles` and user wants to convert `~/articles/2026-01-31/NewsSource.HACKER_NEWS/`
-   - Then input subdirectory is: `2026-01-31/NewsSource.HACKER_NEWS`
+   - Example: If storage_location is `~/articles` and user wants to convert `~/articles/2026-01-31/NewsSource.HACKER_NEWS/article_slug/`
+   - Then input subdirectory is: `2026-01-31/NewsSource.HACKER_NEWS/article_slug`
    - Or provide full absolute path
 
-**Output**: Markdown files will be saved in the same directory as input files.
+**Output**: Markdown files will be saved in the same directory as input `origin.json` file.
 
 ### Step 3: Start Docker Container
 
@@ -84,9 +92,8 @@ Copy the input directory to the temp_data folder:
    temp_data/
    └── 2026-01-31/
        └── NewsSource.HACKER_NEWS/
-           ├── file1.json
-           ├── file2.json
-           └── ...
+           └── article_slug/
+               └── origin.json
    ```
 
 ### Step 5: Execute Conversion in Docker
@@ -168,47 +175,91 @@ docker exec html-to-markdown-container bun /app/convert.ts /app/temp_data/{path}
 
 **For JSON files (from aggregate-news):**
 
-1. Read and parse JSON file
-2. Check for `content` field (contains article HTML)
-3. Check for `additional_metadata.comments_content` (contains HN discussion HTML)
-4. Extract base metadata: `url`, `title`, `source`, `publish_time`
+1. Read and parse `origin.json` file
+2. Detect source type from JSON structure:
+   - If has `post_content` and `comment_content` → HackerNewsItem
+   - If has `product_content` and `hunt_content` → ProductHuntItem
+3. Extract base metadata: `title`, `publish_time`, `popularity`, `source`
 
-**Generate up to 2 markdown files:**
+**Generate markdown files based on source type:**
 
-a) **Article markdown** (if `content` exists and not null):
-   - Source: `content` field
-   - URL: `url` field  
-   - Type: `article`
-   - Filename: `{sanitized-title}.md`
-   - Frontmatter includes: url, title, source, published, type
+### a) Hacker News Item Processing
 
-b) **Discussion markdown** (if `comments_content` exists and not null):
-   - Source: `additional_metadata.comments_content` field
-   - URL: `additional_metadata.comments_url` field
-   - Type: `hn_discussion`
-   - Filename: `{sanitized-title}-discussion.md`
-   - Frontmatter includes: url (comments_url), title, source, type, original_article (link to article)
+From origin.json containing HackerNewsItem data, generate:
 
-JSON structure example:
-```json
-{
-  "url": "https://example.com/article",
-  "title": "Article Title",
-  "content": "<html>...</html>",
-  "source": "hacker_news",
-  "publish_time": "2026-01-30T10:00:00",
-  "additional_metadata": {
-    "comments_url": "https://news.ycombinator.com/item?id=123456",
-    "points": 100,
-    "comments": 50,
-    "comments_content": "<html>...</html>"
-  }
-}
-```
+**post.md** (if `post_content` exists and not null):
+- Source: `post_content` field (HTML)
+- URL: `post_url` field  
+- Type: `article`
+- Frontmatter includes:
+  ```yaml
+  ---
+  url: [post_url]
+  title: "[title]"
+  source: hacker_news
+  published: "[publish_time]"
+  type: article
+  points: [points]
+  num_comments: [num_comments]
+  ---
+  ```
 
-**If content is null:**
-- Report: "Skipping {filename}: content field is null"
-- Do not generate markdown
+**comment.md** (if `comment_content` exists and not null):
+- Source: `comment_content` field (HTML)
+- URL: `comment_url` field
+- Type: `hn_discussion`
+- Frontmatter includes:
+  ```yaml
+  ---
+  url: [comment_url]
+  title: "[title] - Discussion"
+  source: hacker_news
+  type: hn_discussion
+  original_article: [post_url]
+  points: [points]
+  num_comments: [num_comments]
+  ---
+  ```
+
+### b) Product Hunt Item Processing
+
+From origin.json containing ProductHuntItem data, generate:
+
+**product.md** (if `product_content` exists and not null):
+- Source: `product_content` field (HTML)
+- URL: `product_url` field
+- Type: `product_page`
+- Frontmatter includes:
+  ```yaml
+  ---
+  url: [product_url]
+  title: "[title]"
+  source: product_hunt
+  published: "[publish_time]"
+  type: product_page
+  votes: [votes]
+  ---
+  ```
+
+**hunt.md** (if `hunt_content` exists and not null):
+- Source: `hunt_content` field (HTML)
+- URL: `hunt_url` field
+- Type: `product_hunt_page`
+- Frontmatter includes:
+  ```yaml
+  ---
+  url: [hunt_url]
+  title: "[title] - Product Hunt"
+  source: product_hunt
+  type: product_hunt_page
+  original_product: [product_url]
+  votes: [votes]
+  ---
+  ```
+
+**If content fields are null:**
+- Report: "Skipping {field_name} for {filename}: content field is null"
+- Do not generate corresponding markdown file
 
 ## HTML to Markdown Conversion
 
@@ -222,7 +273,7 @@ The `convert.ts` script uses the TypeScript functions from [html-to-markdown.ts]
 
 ## Frontmatter Format
 
-**For article (from JSON content or HTML file):**
+### For Hacker News post (post.md):
 ```yaml
 ---
 url: https://example.com/article
@@ -230,10 +281,12 @@ title: "Article Title"
 source: hacker_news
 published: "2026-01-30T10:00:00"
 type: article
+points: 100
+num_comments: 50
 ---
 ```
 
-**For HN discussion (from JSON comments_content):**
+### For Hacker News discussion (comment.md):
 ```yaml
 ---
 url: https://news.ycombinator.com/item?id=123456
@@ -242,48 +295,81 @@ source: hacker_news
 type: hn_discussion
 original_article: https://example.com/article
 points: 100
-comments: 50
+num_comments: 50
+---
+```
+
+### For Product Hunt product page (product.md):
+```yaml
+---
+url: https://example.com/product
+title: "Product Title"
+source: product_hunt
+published: "2026-01-30T10:00:00"
+type: product_page
+votes: 150
+---
+```
+
+### For Product Hunt hunt page (hunt.md):
+```yaml
+---
+url: https://www.producthunt.com/posts/product-slug
+title: "Product Title - Product Hunt"
+source: product_hunt
+type: product_hunt_page
+original_product: https://example.com/product
+votes: 150
 ---
 ```
 
 ## File Naming
 
-Markdown files are saved in the **same directory** as input files:
-- Article: `{sanitized-title}.md`
-- Discussion: `{sanitized-title}-discussion.md`
+Markdown files are saved in the **same directory** as the input `origin.json` file:
+- Hacker News: `post.md` and `comment.md`
+- Product Hunt: `product.md` and `hunt.md`
 
-Sanitize filename: lowercase, hyphens, no special chars, max 80 chars.
+Example directory structure after conversion:
+```
+2026-01-31/
+└── NewsSource.HACKER_NEWS/
+    └── how_ai_assistance_impacts_coding_skills/
+        ├── origin.json
+        ├── post.md
+        └── comment.md
+```
 
 ## Content Types
 
-- **article**: Technical articles, blog posts, tutorials
-- **hn_discussion**: HN comment threads with threading
+- **article**: Technical articles from Hacker News posts, blog posts, tutorials
+- **hn_discussion**: HN comment threads with threading structure
+- **product_page**: Official product website content
+- **product_hunt_page**: Product Hunt discussion and launch page
 - **documentation**: Tech docs with TOC and cross-refs
-- **product_page**: Product pages (remove marketing fluff)
 - **blog_post**: General blog content
 
 ## Example Usage
 
 **Example: Convert aggregate-news JSON files using Docker**
 ```
-User: 把 ~/articles/2026-01-31/NewsSource.HACKER_NEWS/ 文件夹下的 JSON 文件转换成 markdown
+User: 把 ~/articles/2026-01-31/NewsSource.HACKER_NEWS/article_slug/ 文件夹下的 origin.json 文件转换成 markdown
 
 Assistant actions:
 1. Load PREFERENCE.md (storage_location: ~/articles)
 2. cd to {SKILL_ROOT}/scripts
 3. Execute start-docker-container.sh
 4. Copy source directory to temp_data:
-   cp -r ~/articles/2026-01-31 {SKILL_ROOT}/scripts/temp_data/
+   cp -r ~/articles/2026-01-31/NewsSource.HACKER_NEWS/article_slug {SKILL_ROOT}/scripts/temp_data/2026-01-31/NewsSource.HACKER_NEWS/
 5. Run conversion in Docker:
    docker exec html-to-markdown-container \
-     bun /app/convert.ts /app/temp_data/2026-01-31/NewsSource.HACKER_NEWS
+     bun /app/convert.ts /app/temp_data/2026-01-31/NewsSource.HACKER_NEWS/article_slug
 6. Copy results back:
-   cp -r {SKILL_ROOT}/scripts/temp_data/2026-01-31 ~/articles/
+   cp -r {SKILL_ROOT}/scripts/temp_data/2026-01-31/NewsSource.HACKER_NEWS/article_slug/*.md ~/articles/2026-01-31/NewsSource.HACKER_NEWS/article_slug/
 7. Report:
-   ✓ Processed 10 JSON files
-   ✓ Generated 20 markdown files
-     - 10 articles: article1.md, article2.md, ...
-     - 10 discussions: article1-discussion.md, article2-discussion.md, ...
+   ✓ Processed 1 origin.json file
+   ✓ Generated 2 markdown files
+     - post.md (article content)
+     - comment.md (HN discussion)
 ```
 
 ## Troubleshooting
@@ -291,8 +377,8 @@ Assistant actions:
 **Issue**: Docker is not available
 **Solution**: Stop execution. Inform user that Docker is required for this skill.
 
-**Issue**: JSON file has null content field
-**Solution**: Script will skip file and report in summary
+**Issue**: JSON file has null content fields
+**Solution**: Script will skip null fields and report in summary (e.g., "post_content is null, skipping post.md")
 
 **Issue**: Can't parse JSON file
 **Solution**: Script will skip file, report error with filename

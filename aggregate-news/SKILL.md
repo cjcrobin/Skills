@@ -84,12 +84,14 @@ The mounted folder is the {{SKILL_DIR}}/scripts/temp_data. Copy all the files in
 **File Storage Convention:**
 All articles must be saved following this structure:
 ```
-{storage_location}/{YYYY-MM-DD}/{source_name}/{sanitized_title}.json
+{storage_location}/{YYYY-MM-DD}/{source_name}/{slug}/origin.json
 ```
 
+Where `slug` is the sanitized article title (lowercase, underscores, alphanumeric only, max 80 chars).
+
 Examples:
-- `~/articles/2026-01-29/HackerNews/introducing-mcp-protocol.json`
-- `~/articles/2026-01-29/ProductHunt/new-ai-productivity-tool.json`
+- `~/articles/2026-01-29/NewsSource.HACKER_NEWS/introducing_mcp_protocol/origin.json`
+- `~/articles/2026-01-29/NewsSource.PRODUCT_HUNT/new_ai_productivity_tool/origin.json`
 
 ### Step 5: Report Results
 
@@ -98,9 +100,11 @@ Provide a summary:
 ✓ Fetched [N] articles from [sources]
 ✓ Filtered by keywords: [keyword list]
 ✓ Saved to: {storage_location}/{date}/
-  - HackerNews: [N] articles
-  - ProductHunt: [N] articles
+  - NewsSource.HACKER_NEWS: [N] articles in individual slug folders
+  - NewsSource.PRODUCT_HUNT: [N] articles in individual slug folders
 ```
+
+Each article is stored in its own folder as `origin.json`.
 
 ## Script Reference
 

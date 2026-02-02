@@ -110,8 +110,73 @@ function normalizeWhitespace(text: string): string {
   return text.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+function cleanHtml(html: string): string {
+  let cleaned = html;
+  
+  // Remove script tags and their content
+  cleaned = cleaned.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+  
+  // Remove style tags and their content
+  cleaned = cleaned.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+  
+  // Remove noscript tags and their content
+  cleaned = cleaned.replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, '');
+  
+  // Remove SVG tags and their content
+  cleaned = cleaned.replace(/<svg[^>]*>[\s\S]*?<\/svg>/gi, '');
+  
+  // Remove iframe tags and their content
+  cleaned = cleaned.replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi, '');
+  
+  // Remove canvas tags
+  cleaned = cleaned.replace(/<canvas[^>]*>[\s\S]*?<\/canvas>/gi, '');
+  
+  // Remove link tags (CSS, etc.)
+  cleaned = cleaned.replace(/<link[^>]*\/?>/gi, '');
+  
+  // Remove meta tags
+  cleaned = cleaned.replace(/<meta[^>]*\/?>/gi, '');
+  
+  // Remove inline styles
+  cleaned = cleaned.replace(/\sstyle=["'][^"']*["']/gi, '');
+  
+  // Remove event handlers (onclick, onload, etc.)
+  cleaned = cleaned.replace(/\son[a-z]+=(["'])[^\1]*?\1/gi, '');
+  
+  // Remove data attributes
+  cleaned = cleaned.replace(/\sdata-[a-z-]+=(["'])[^\1]*?\1/gi, '');
+  
+  // Remove class and id attributes (optional, but helps clean output)
+  cleaned = cleaned.replace(/\sclass=(["'])[^\1]*?\1/gi, '');
+  cleaned = cleaned.replace(/\sid=(["'])[^\1]*?\1/gi, '');
+  
+  // Remove role attributes
+  cleaned = cleaned.replace(/\srole=(["'])[^\1]*?\1/gi, '');
+  
+  // Remove aria attributes
+  cleaned = cleaned.replace(/\saria-[a-z-]+=(["'])[^\1]*?\1/gi, '');
+  
+  // Remove common navigation/UI elements
+  cleaned = cleaned.replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '');
+  cleaned = cleaned.replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '');
+  cleaned = cleaned.replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '');
+  cleaned = cleaned.replace(/<aside[^>]*>[\s\S]*?<\/aside>/gi, '');
+  
+  // Remove forms (often contain scripts)
+  cleaned = cleaned.replace(/<form[^>]*>[\s\S]*?<\/form>/gi, '');
+  
+  // Remove button tags (often have onclick handlers)
+  cleaned = cleaned.replace(/<button[^>]*>[\s\S]*?<\/button>/gi, '');
+  
+  // Remove input tags
+  cleaned = cleaned.replace(/<input[^>]*\/?>/gi, '');
+  
+  return cleaned;
+}
+
 export function htmlToMarkdown(html: string): string {
-  let md = html;
+  // First, clean the HTML to remove scripts, styles, and irrelevant elements
+  let md = cleanHtml(html);
 
   md = md.replace(/<br\s*\/?>/gi, '\n');
   md = md.replace(/<hr\s*\/?>/gi, '\n\n---\n\n');
